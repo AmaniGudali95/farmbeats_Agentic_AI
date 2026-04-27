@@ -341,12 +341,6 @@ Wrong embedder → near-zero scores → wrong answers returned confidently with 
 **Agent loops need limits.**
 Without a 10-step maximum, ambiguous questions loop indefinitely consuming tokens and money.
 
-**JavaScript is case-sensitive and quote-type-sensitive.**
-`userLat` and `userlat` are different variables. Single quotes `'${lat}'` send literal text — backticks `` `${lat}` `` evaluate it. Both bugs cause silent failures.
-
-**Location matters for agriculture.**
-Hardcoded coordinates give wrong weather for farmers in different countries. GPS coordinates silently provide real local forecasts with no input from the farmer.
-
 ---
 
 ## Next steps
@@ -357,7 +351,7 @@ Hardcoded coordinates give wrong weather for farmers in different countries. GPS
 - Outcome tracking — follow up a week after recommendations
 - Crop-specific guides (wheat, potato, millet, sorghum)
 - Voice input for low-literacy farmers using Web Speech API
-- sending alerts to an email or phone.
+- sending alerts to an email or phone(push notification)
 
 ---
 
