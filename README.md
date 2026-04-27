@@ -352,6 +352,8 @@ Without a 10-step maximum, ambiguous questions loop indefinitely consuming token
 - Crop-specific guides (wheat, potato, millet, sorghum)
 - Voice input for low-literacy farmers using Web Speech API
 - sending alerts to an email or phone(push notification)
+- security(authentication using login and JWT token)
+- scalability for more than 100 k farmers
 
 ---
 
