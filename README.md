@@ -228,7 +228,8 @@ Semantic Scholar paper IDs contain `/` and `.` which ChromaDB rejects in chunk I
 - **Fallback embedder** — without API key, hash embeddings give corn vs maize similarity 0.035 vs ~0.85 real
 - **No offline mode** — needs internet for Claude API and weather; production needs Ollama + Phi-3
 - **No multilingual support yet** — English only; Claude responds natively in any language with one system prompt change
-- **Abstract-only indexing** — knowledge updater indexes abstracts only, not full paper text
+- alerts to an email/ phone/ push notification
+- scaling and security
 
 ---
 
