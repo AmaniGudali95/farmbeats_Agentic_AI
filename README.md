@@ -57,11 +57,12 @@ and no rain is forecast for the next 3 days."
 └─────────────────────────────────────────────────────────┘
 
 
-<img width="2880" height="1644" alt="image" src="https://github.com/user-attachments/assets/7c0c1426-305d-45d5-8bcc-65b5aece8103" />
-
 ```
 
 ---
+
+<img width="2880" height="1644" alt="image" src="https://github.com/user-attachments/assets/7fc8d69a-6c33-45c0-9af7-ac22e0ba5dc8" />
+
 
 ## What was built — week by week
 
