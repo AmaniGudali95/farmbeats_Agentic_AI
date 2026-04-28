@@ -55,6 +55,10 @@ and no rain is forecast for the next 3 days."
 │        ↓                                                 │
 │   Semantic retrieval at query time                       │
 └─────────────────────────────────────────────────────────┘
+
+
+<img width="2880" height="1644" alt="image" src="https://github.com/user-attachments/assets/7c0c1426-305d-45d5-8bcc-65b5aece8103" />
+
 ```
 
 ---
