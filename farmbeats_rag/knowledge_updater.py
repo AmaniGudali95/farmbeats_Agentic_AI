@@ -8,6 +8,25 @@ from rag_cli import AnthropicEmbedder, AgriEmbedder, VectorStore, DB_PATH, chunk
 import pypdf
 import io
 
+TRUSTED_SOURCES = [
+    {
+        "url": "https://www.fao.org/3/y4263e/y4263e06.htm",
+        "name": "fao_irrigation_management"
+    },
+    {
+        "url": "https://extension.umn.edu/growing-guide/corn",
+        "name": "umn_corn_guide"
+    },
+    {
+        "url": "https://www.nrcs.usda.gov/conservation-basics/natural-resource-concerns/soil/soil-health",
+        "name": "usda_soil_health"
+    },
+    {
+        "url": "https://www.fao.org/3/y4263e/y4263e07.htm",
+        "name": "fao_crop_water_requirements"
+    },
+]
+
 def search_new_papers(query="precision agriculture IoT sensors", limit=5):
     url="https://api.semanticscholar.org/graph/v1/paper/search"
     params={
@@ -50,7 +69,7 @@ def download_pdf_text(pdf_url):
         if response.status_code!=200:
             return None
         pdf_file=io.BytesIO(response.content)
-        reader = pypdf.pdfReader(pdf_file)
+        reader = pypdf.PdfReader(pdf_file)
 
         pages=[]
         for i,page in enumerate(reader.pages):
@@ -101,6 +120,98 @@ def add_paper_to_index(store,paper):
     store.add_chunks(chunks)
     print(f" Added '{paper['title'][:60]}' ({len(chunks)} chunks)")
     return True
+def source_already_indexed(store, source_name):
+    """
+    Check if a web source is already in ChromaDB.
+    Uses source name as identifier.
+    """
+    try:
+        chunk_id = f"{source_name}__chunk_0"
+        results = store.collection.get(ids=[chunk_id])
+        return len(results["ids"]) > 0
+    except Exception:
+        return False
+
+
+def scrape_agricultural_source(store, url, source_name):
+    """
+    Fetches content from a trusted agricultural website.
+    Extracts main text, chunks it, adds to ChromaDB.
+    """
+    try:
+        from bs4 import BeautifulSoup
+
+        print(f"  Fetching {source_name}...")
+        response = requests.get(url, timeout=15)
+
+        if response.status_code != 200:
+            print(f"  Failed — status {response.status_code}")
+            return False
+
+        soup = BeautifulSoup(response.text, 'html.parser')
+
+        # Remove navigation, headers, footers, scripts
+        for tag in soup(['nav', 'header', 'footer',
+                         'script', 'style', 'aside']):
+            tag.decompose()
+
+        text = soup.get_text(separator=' ', strip=True)
+
+        # Clean up excessive whitespace
+        import re
+        text = re.sub(r'\s+', ' ', text).strip()
+
+        if len(text.split()) < 100:
+            print(f"  Too short — skipping {source_name}")
+            return False
+
+        chunks = chunk_text(
+            text,
+            source=source_name,
+            chunk_size=400,
+            overlap=60
+        )
+
+        if not chunks:
+            print(f"  No chunks produced — skipping {source_name}")
+            return False
+
+        store.add_chunks(chunks)
+        print(f"  Added {source_name} ({len(chunks)} chunks)")
+        return True
+
+    except Exception as e:
+        print(f"  Failed to scrape {source_name}: {e}")
+        return False
+
+
+def update_web_sources(store):
+    """
+    Fetches and indexes content from trusted agricultural websites.
+    Skips sources already in the index.
+    """
+    print(f"\n{'─'*60}")
+    print("Updating from trusted web sources...")
+    print(f"{'─'*60}")
+
+    added   = 0
+    skipped = 0
+
+    for source in TRUSTED_SOURCES:
+        if source_already_indexed(store, source["name"]):
+            print(f"  Already indexed: {source['name']}")
+            skipped += 1
+        else:
+            success = scrape_agricultural_source(
+                store,
+                source["url"],
+                source["name"]
+            )
+            if success:
+                added += 1
+
+    print(f"\nWeb sources: {added} added, {skipped} skipped")
+    return added
 def update_knowledge_base():
     print(f"\n{'='*60}")
     print(f"Knowledge base update - "
@@ -140,6 +251,8 @@ def update_knowledge_base():
             success=add_paper_to_index(store,paper)
             if success:
                 added+=1
+    web_added = update_web_sources(store)
+    added += web_added
     print(f"\nupdate complete:")
     print(f" added: {added} new papers")
     print(f"Skipped: {skipped} duplicates")
@@ -158,4 +271,3 @@ if __name__=="__main__":
         run_scheduler()
     else:
         update_knowledge_base()
-
