@@ -14,7 +14,7 @@ TRUSTED_SOURCES = [
         "name": "fao_irrigation_management"
     },
     {
-        "url": "https://extension.umn.edu/growing-guide/corn",
+        "url": "https://extension.umn.edu/corn/growing-corn",
         "name": "umn_corn_guide"
     },
     {
