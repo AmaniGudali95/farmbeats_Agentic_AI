@@ -8,7 +8,7 @@ An end-to-end agentic AI system for precision agriculture, inspired by Microsoft
 
 ## The problem this solves
 
-Smallholder farmers — who earn less than $2 a day and feed the majority of the world — cannot access data-driven agriculture tools. Existing solutions require expensive sensors, reliable internet, and technical expertise they don't have.
+Enable Smallholder farmers access to data-driven agriculture tools. Existing solutions require expensive sensors, reliable internet, and technical expertise they don't have.
 
 This system demonstrates how AI can bridge that gap: a farmer types a question in plain English and gets a specific, research-grounded recommendation based on their actual field conditions and real local weather.
 
@@ -60,6 +60,7 @@ and no rain is forecast for the next 3 days."
 │   ChromaDB vector store (cosine similarity / HNSW)       │
 └─────────────────────────────────────────────────────────┘
 ```
+<img width="1029" height="780" alt="Screenshot 2026-05-06 at 10 45 23 AM" src="https://github.com/user-attachments/assets/d4f94414-8c62-49f6-9f5a-10d405e7dd75" />
 
 ---
 
