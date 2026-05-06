@@ -1,0 +1,9 @@
+[
+  {
+    "timestamp": "2026-04-26T20:31:39.296017",
+    "question": "Should I irrigate my corn today?",
+    "field_id": "field_a",
+    "recommendation": "Irrigate today. Soil moisture is at 40% (below the 50% threshold) and no rain is forecast for the next 3 days.",
+    "rating": "helpful"
+  }
+]
