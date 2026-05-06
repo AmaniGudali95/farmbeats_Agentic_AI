@@ -50,6 +50,7 @@ and no rain is forecast for the next 3 days."
 │   Chunked (400 words, 60-word overlap)                   │
 │        ↓                                                 │
 │   BGE embeddings (BAAI/bge-base-en-v1.5)                │
+│   Runs locally — no API key, no cost, works offline      │
 │        ↓                                                 │
 │   ChromaDB vector store (cosine similarity / HNSW)       │
 │        ↓                                                 │
@@ -138,6 +139,57 @@ python knowledge_updater.py --schedule # run every Monday at 6am
 
 ---
 
+## Embedding model progression
+
+The embedding model went through three stages during development. This progression is important for understanding why BGE was chosen.
+
+### Stage 1 — Fallback hash embedder (no API key)
+
+The codebase includes a hash-based fallback embedder that runs without any API key:
+
+```python
+# Converts each word to an MD5 hash
+# Bumps 4 positions in a fixed-size vector
+# No semantic understanding — only word overlap
+```
+
+This was the embedder used during all Week 1 and Week 2 development because no Anthropic API key was available. Results:
+
+```
+corn vs maize:   0.035  ← nearly zero despite same meaning
+corn vs weather: 0.000  ← zero for everything unrelated
+```
+
+The fallback cannot distinguish meaning — it only detects shared words.
+
+### Stage 2 — Anthropic embeddings (with API key)
+
+The codebase supports Anthropic's `text-embedding-3-small` model when an API key is set:
+
+```python
+if self.client:
+    return self._embed_anthropic(texts)   # real embeddings
+return self._embed_fallback(texts)         # hash fallback
+```
+
+Since no API key was available during development, **Anthropic embeddings were never actually used**. All experiments were run with the fallback embedder or the models below.
+
+### Stage 3 — BGE (current, selected after systematic comparison)
+
+After a systematic comparison of four models, BGE was selected as the optimal embedder:
+
+```
+BAAI/bge-base-en-v1.5
+  - Free and open source
+  - Runs completely offline after first download (~440MB)
+  - No API key needed
+  - Trained with contrastive learning for retrieval
+  - Best discrimination gap: 0.358
+  - normalize_embeddings=True required
+```
+
+---
+
 ## Experiment results
 
 ### Experiment 1 — Chunk size sweep
@@ -167,7 +219,7 @@ overlap=0:
   Chunk 0 ends:   "...An average farmer in Sub-Saharan Africa"
   Chunk 1 starts: "earns less than $2 per day..."
   → Subject and predicate in different chunks
-  → Neither chunk retrieves correctly for "smallholder farmer income"
+  → Neither chunk retrieves correctly
 
 overlap=60:
   Complete sentence appears in at least one chunk
@@ -189,19 +241,20 @@ corn vs weather:    0.000       0.798          0.814       0.521
 corn vs tractor:    0.000       0.748          0.736       0.517
 corn vs stocks:     0.000       0.673          0.713       0.357
 
-Discrimination gap (maize - stocks):
+Discrimination gap (maize score - stocks score):
                     0.035       0.186          0.146       0.358
 ```
 
 **Analysis:**
-- **Fallback (hash-based):** Near-zero scores for everything — cannot distinguish meaning at all
-- **AgriScibert:** Good at recognising corn=maize (0.859) but over-relates all agricultural topics — discrimination gap only 0.186
-- **SPECTER2:** Similar problem to AgriScibert, worse discrimination gap (0.146)
-- **BGE:** Best discrimination gap (0.358) — nearly double AgriScibert. Correctly identifies stocks as unrelated (0.357) while keeping corn/maize similarity high (0.715)
+
+- **Fallback:** Cannot distinguish meaning at all — only detects word overlap
+- **AgriScibert:** Correctly identifies corn=maize (0.859) but over-relates all agricultural topics — gap only 0.186. Trained as masked language model, not for retrieval
+- **SPECTER2:** Similar problem, worse gap (0.146)
+- **BGE:** Best gap (0.358) — nearly double AgriScibert. Correctly identifies stocks as unrelated (0.357) while keeping corn/maize high (0.715)
+
+**Key insight:** AgriScibert and SPECTER2 were trained as masked language models — they learned what words appear together. BGE was trained with contrastive learning specifically for retrieval — explicitly trained to push similar sentences together and dissimilar ones apart. This is why BGE discriminates better within a domain.
 
 **Winner: BGE (BAAI/bge-base-en-v1.5)**
-
-Key insight: AgriScibert and SPECTER2 were trained as masked language models — they learned what words appear together in agricultural text. BGE was trained with contrastive learning specifically for retrieval — explicitly trained to push similar sentences together and different sentences apart. This is why BGE discriminates better within a domain.
 
 ---
 
@@ -211,61 +264,62 @@ Key insight: AgriScibert and SPECTER2 were trained as masked language models —
 7 chunks:
   ChromaDB HNSW:  0.044s for 100 queries
   Brute force:    0.233s for 100 queries
-  ChromaDB is 5.3x faster
+  ChromaDB is 5.3x faster at 7 chunks
 
 Extrapolated to 7 million chunks:
   Brute force:    ~4.47 hours per query
   ChromaDB HNSW:  ~4 seconds per query
 ```
 
-**Finding:** Brute force is O(n) — time grows linearly with chunk count. HNSW is O(log n) — time grows logarithmically. The gap is negligible at 7 chunks but catastrophic at scale.
+**Finding:** Brute force is O(n). HNSW is O(log n). Negligible difference at 7 chunks — catastrophic at scale.
 
 ---
 
-### Experiment 5 — Wrong embedder experiment
+### Experiment 5 — Wrong embedder silent failure
 
-Queried ChromaDB with a random 1536-dimensional vector instead of a real embedding:
+Queried ChromaDB with a random 1536-dimensional vector:
 
 ```
-Results:
-  score=0.026  "expensive to deploy in rural areas..."
-  score=0.009  "in rural areas. Drone-based imaging..."
-  score=-0.001 "components of the system on GitHub..."
+score=0.026   "expensive to deploy in rural areas..."
+score=0.009   "in rural areas. Drone-based imaging..."
+score=-0.001  "components of the system on GitHub..."
 ```
 
-**Finding:** ChromaDB returned results with no error — silent failure. A negative score means the random vector pointed in the opposite direction to that chunk in vector space (180° angle). Must use the same embedding model for both indexing and querying — ChromaDB cannot detect a mismatch.
+**Finding:** ChromaDB returned results with no error. A negative score means the random vector pointed in the opposite direction (180° angle) to that chunk. Silent failure — must use the same embedding model for indexing and querying.
 
 ---
 
 ### Experiment 6 — BGE retrieval quality
-
-After switching to BGE and re-indexing:
 
 ```
 Q: What soil moisture triggers corn irrigation?
   [1] score=0.695 — "falls below a threshold...system recommends irrigation" ✓
 
 Q: What NDVI value indicates healthy crops?
-  [1] score=0.726 — "FarmBeats sensor system measures soil properties" (partial)
-  Note: NDVI-specific content not yet in knowledge base — will improve with weekly updates
+  [1] score=0.726 — "FarmBeats sensor system measures soil properties"
+  Note: NDVI-specific content not yet in knowledge base
+        Will improve as weekly updater adds NDVI papers
 
 Q: How does FarmBeats work without internet?
-  [1] score=0.740 — "in rural areas. Drone-based imaging requires..."
+  [1] score=0.740 — "in rural areas. Drone-based imaging..."
   [2] score=0.736 — "farms lack reliable internet access. FarmBeats..."
   [3] score=0.734 — "internet unavailable, FarmBeats Hub stores locally" ✓
 ```
 
-**Finding:** BGE retrieves the correct chunk first for irrigation and connectivity questions. NDVI retrieval is limited by knowledge base content, not embedder quality — will improve as weekly updater adds NDVI-specific papers.
+**Finding:** BGE retrieves correct chunks for irrigation and connectivity. NDVI gap is a knowledge base problem, not an embedder problem — will improve with weekly updates.
 
 ---
 
 ## Key technical decisions and why
 
 **Why BGE over AgriScibert?**
-BGE's discrimination gap (0.358) is nearly double AgriScibert's (0.186). AgriScibert learned that all agricultural topics are related — correct conceptually but bad for retrieval. BGE was trained contrastively to distinguish between similar and dissimilar sentences regardless of domain.
+BGE's discrimination gap (0.358) is nearly double AgriScibert's (0.186). AgriScibert learned all agricultural topics are related — correct conceptually but bad for retrieval precision. BGE's contrastive training distinguishes between similar and dissimilar sentences regardless of domain.
+
+**Why not Anthropic embeddings?**
+Anthropic embeddings require an API key and cost per query. BGE runs completely offline, is free forever, and outperforms the fallback hash embedder that was used when no API key was available. For production at scale — thousands of farmers making hundreds of queries daily — local embeddings are essential for cost control.
 
 **Why cosine similarity over L2 distance?**
-Cosine measures the angle between vectors — ignores magnitude (text length), compares only direction (meaning). L2 penalises longer documents unfairly.
+Cosine measures angle between vectors — ignores magnitude (text length), compares only direction (meaning). L2 penalises longer documents unfairly. `normalize_embeddings=True` in BGE ensures vectors are unit length for accurate cosine comparison.
 
 **Why 400-word chunks with 60-word overlap?**
 Tested six sizes. 400 words balanced retrieval precision with context richness. 60-word overlap (15%) ensures key sentences appear completely in at least one chunk.
@@ -282,19 +336,16 @@ A farmer in Kenya and California get completely different weather. Browser Geolo
 **Why MD5 hash for deduplication?**
 Semantic Scholar paper IDs contain `/` and `.` which ChromaDB rejects. MD5 produces a clean 8-character alphanumeric string. Deterministic — same paper always produces the same hash.
 
-**Why `normalize_embeddings=True` for BGE?**
-BGE is specifically designed for cosine similarity with normalised vectors. Without normalisation, dot product scores are not bounded between -1 and 1, making comparison unreliable.
-
 ---
 
 ## What this system cannot do yet
 
 - **No real IoT sensors** — soil moisture simulated with realistic random variation per field
-- **No real NDVI** — hardcoded at 0.67; production would use Sentinel-2 satellite API (free via Sentinel Hub)
+- **No real NDVI** — hardcoded at 0.67; production would use Sentinel-2 satellite API
 - **No offline LLM** — requires Anthropic API for reasoning; production would use Ollama + Phi-3 Mini
-- **No multilingual support yet** — English only; Claude responds natively in any language with one system prompt change
-- **Abstract-only indexing for most papers** — full PDF download works where open access PDFs are available
-- **No fine-tuned embedder** — BGE is general-purpose; fine-tuning on labelled agricultural sentence pairs could push discrimination gap above 0.5
+- **No multilingual support** — English only; Claude responds natively in any language with one system prompt change
+- **No fine-tuned embedder** — BGE is general-purpose; fine-tuning on labelled agricultural pairs could push discrimination gap above 0.5
+- **Abstract-only indexing for most papers** — full PDF download where open access is available
 
 ---
 
@@ -302,37 +353,30 @@ BGE is specifically designed for cosine similarity with normalised vectors. With
 
 **Real soil sensors (~$50):**
 ```python
-# Raspberry Pi + capacitive moisture sensor
 response = requests.get(f"http://raspberry-pi:5000/sensor/{field_id}")
+# Capacitive moisture sensor + Raspberry Pi
 # Or ThingSpeak free IoT platform
 ```
 
 **Real NDVI (free):**
 ```
 Sentinel Hub — sentinelhub.com
-Sentinel-2 satellites: 10m resolution, updated every 5 days
-Free research tier available
+Sentinel-2: 10m resolution, updated every 5 days, covers entire Earth
 ```
 
 **Offline operation:**
 ```bash
 brew install ollama
-ollama pull phi3          # 2.4GB, runs on 4GB RAM
+ollama pull phi3
 export USE_LOCAL_LLM=true
-python week2_agent.py     # no internet, no API cost
+python week2_agent.py
 ```
 
-**Multilingual:**
-```python
-run_agent(question="मिट्टी की नमी क्या है?", language="Hindi")
-# BGE embeds in English, Claude responds in Hindi
-```
-
-**Fine-tuning BGE on agricultural data (Month 2 goal):**
+**Fine-tuning BGE (Month 2 goal):**
 ```python
 # Collect 2000-5000 labelled agricultural sentence pairs
-# Fine-tune with LoRA — runs on Mac M2/M3
-# Expected discrimination gap: 0.35 → 0.50+
+# Fine-tune with LoRA on Mac M2/M3
+# Expected discrimination gap: 0.358 → 0.50+
 ```
 
 ---
@@ -358,7 +402,7 @@ export ANTHROPIC_API_KEY=sk-ant-...
 # 5. Build knowledge base
 python rag_cli.py --ingest
 
-# 6. Update with latest research papers
+# 6. Update with latest research
 python knowledge_updater.py
 
 # 7. Start server
@@ -396,48 +440,41 @@ farmbeats_rag/
 
 ## What I learned building this
 
+**The embedding model used during development was always the fallback.**
+Since no Anthropic API key was available, all Week 1 and Week 2 development used the hash-based fallback embedder. This made the embedding comparison experiment especially valuable — it revealed how large the gap between hash-based and real embeddings actually is (0.035 vs 0.715 for corn/maize).
+
+**Domain-specific models can over-fit the domain.**
+AgriScibert knows corn and maize are related (0.859) but also thinks corn and weather forecasts are nearly as related (0.798). Trained on agricultural text without contrastive objectives, it learned "everything agricultural is similar." BGE's contrastive training gives better discrimination.
+
 **Chunk size is the most impactful RAG parameter.**
 Tested 6 sizes. At 100 words the NDVI explanation split across 4 chunks. At 1200 only 3 chunks covered the entire document. 400 words balanced precision with context.
 
 **The boundary problem is real and measurable.**
 Splitting one sentence across a chunk boundary reduced retrieval similarity by ~25%. Overlap is not optional.
 
-**Domain-specific models can over-fit the domain.**
-AgriScibert knows corn and maize are related (0.859) but also thinks corn and weather forecasts are nearly as related (0.798). Trained on agricultural text without contrastive objectives, it learned "everything agricultural is similar." BGE's contrastive training gives better discrimination (gap: 0.358 vs 0.186).
-
 **Silent failures are the most dangerous bugs.**
-Wrong embedder → near-zero scores → wrong answers returned confidently with no error. Harder to find than a crash.
-
-**The system prompt determines grounding more than anything else.**
-"Answer using the retrieved passages" reduced hallucination more than tripling retrieved chunks.
+Wrong embedder → near-zero scores → wrong answers with no error. Harder to find than a crash.
 
 **Brute force search does not scale.**
-4.47 hours per query at 7M chunks. ChromaDB HNSW: 4 seconds. This is why vector databases exist.
-
-**Agent loops need limits.**
-Without a 10-step maximum, ambiguous questions loop indefinitely consuming tokens.
-
-**JavaScript is case-sensitive and quote-type-sensitive.**
-`userLat` and `userlat` are different variables. Single quotes `'${lat}'` send literal text — backticks evaluate it. Both bugs cause silent failures.
-
-**Location matters for agriculture.**
-Hardcoded coordinates give wrong weather for farmers in different countries. GPS coordinates silently provide real local forecasts with no input from the farmer.
+4.47 hours per query at 7M chunks. ChromaDB HNSW: 4 seconds.
 
 **Labelled data beats raw scale.**
-Fine-tuning BGE on 2000 labelled agricultural sentence pairs would likely outperform AgriScibert trained on millions of unlabelled documents. The right data matters more than volume.
+Fine-tuning BGE on 2000 labelled agricultural pairs would likely outperform AgriScibert trained on millions of unlabelled documents.
+
+**BGE requires normalisation.**
+`normalize_embeddings=True` is required for accurate cosine similarity. Without it dot product scores are not bounded between -1 and 1.
 
 ---
 
 ## Next steps
 
-- Fine-tune BGE on labelled agricultural sentence pairs (target: discrimination gap > 0.5)
-- Sentinel Hub API for real NDVI from Sentinel-2 satellites
+- Fine-tune BGE on labelled agricultural sentence pairs (target: gap > 0.5)
+- Sentinel Hub API for real NDVI
 - Ollama + Phi-3 Mini for fully offline operation
-- Multilingual support — language selector in UI
+- Multilingual support
+- JWT authentication and rate limiting
+- Raspberry Pi deployment — fully offline edge hardware
 - Outcome tracking — follow up a week after recommendations
-- JWT authentication and rate limiting for production
-- Raspberry Pi deployment — test fully offline on edge hardware
-- Voice input using Web Speech API for low-literacy farmers
 
 ---
 
@@ -447,4 +484,4 @@ Chandra, R., Swaminathan, M., Chakraborty, T., Ding, J., Kapetanovic, Z., Kumar,
 
 ---
 
-*Built as a learning project to understand agentic AI systems end to end — from PDF ingestion and vector embeddings through ReAct reasoning loops to a deployed farmer interface with real GPS-based weather, a weekly knowledge update pipeline, and a systematic embedding model evaluation.*
+*Built as a learning project to understand agentic AI systems end to end — from PDF ingestion and vector embeddings through ReAct reasoning loops to a deployed farmer interface. Includes systematic embedding model evaluation identifying BGE as optimal for agricultural retrieval (discrimination gap 0.358 vs 0.186 for domain-specific AgriScibert).*
