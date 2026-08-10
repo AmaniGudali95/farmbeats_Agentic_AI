@@ -336,6 +336,7 @@ source .venv/bin/activate
 pip install anthropic chromadb pypdf fastapi uvicorn requests \
             schedule pydantic sentence-transformers torch peft \
             beautifulsoup4
+pip install psutil
 
 # 4. API key (optional — BGE embedder works without it)
 export ANTHROPIC_API_KEY=sk-ant-...
